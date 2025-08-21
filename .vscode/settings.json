@@ -1,0 +1,31 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+    "C_Cpp.default.configurationProvider": "",
+    "C_Cpp.errorSquiggles": "enabled",
+    "idf.espIdfPathWin": "d:\\workspace\\esp\\v5.5\\esp-idf",
+    "idf.pythonInstallPath": "d:\\workspace\\idftools\\tools\\idf-python\\3.11.2\\python.exe",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "idf.toolsPathWin": "d:\\workspace\\idftools",
+    "idf.customExtraVars": {
+        "IDF_TARGET": "esp32s3"
+    },
+    "idf.portWin": "COM5",
+    "idf.flashType": "UART",
+    "idf.buildPath": "${workspaceFolder}/build",
+    "files.associations": {
+        "esp_camera.h": "c",
+        "freertos.h": "c",
+        "esp_chip_info.h": "c",
+        "task.h": "c",
+        "sdkconfig.h": "c",
+        "main.h": "c",
+        "stdio.h": "c",
+        "esp_err.h": "c",
+        "esp_log.h": "c",
+        "esp_system.h": "c",
+        "nvs_flash.h": "c"
+    }
+}

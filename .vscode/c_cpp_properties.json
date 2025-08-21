@@ -1,0 +1,75 @@
+{
+    "configurations": [
+        {
+            "name": "ESP-IDF",
+            "compilerPath": "d:\\workspace\\idftools\\tools\\xtensa-esp-elf\\esp-14.2.0_20241119\\xtensa-esp-elf\\bin\\xtensa-esp32s3-elf-gcc.exe",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "compilerArgs": [
+                "-fdiagnostics-color=always"
+            ],
+            "forcedInclude": [
+                "${workspaceFolder}/build/config/sdkconfig.h"
+            ],
+            "includePath": [
+                "${workspaceFolder}/build/config",
+                "${workspaceFolder}/main",
+                "${workspaceFolder}/managed_components/espressif__esp32-camera/driver/include",
+                "${workspaceFolder}/managed_components/espressif__esp32-camera/conversions/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/newlib/platform_include",
+                "d:/workspace/esp/v5.5/esp-idf/components/freertos/config/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/freertos/config/include/freertos",
+                "d:/workspace/esp/v5.5/esp-idf/components/freertos/config/xtensa/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/freertos/FreeRTOS-Kernel/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos",
+                "d:/workspace/esp/v5.5/esp-idf/components/freertos/esp_additions/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_hw_support/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_hw_support/include/soc",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_hw_support/include/soc/esp32s3",
+                "d:/workspace/esp/v5.5/esp-idf/components/heap/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/log/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/soc/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/soc/esp32s3",
+                "d:/workspace/esp/v5.5/esp-idf/components/soc/esp32s3/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/hal/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/hal/esp32s3/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_rom/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_rom/esp32s3/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_common/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_system/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/xtensa/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/xtensa/esp32s3/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_driver_gpio/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/esp_driver_ledc/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/nvs_flash/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/spi_flash/include",
+                "d:/workspace/esp/v5.5/esp-idf/components/**"
+            ],
+            "defines": [
+                "ESP_PLATFORM=1",
+                "IDF_VER=\"v5.5\"",
+                "SOC_MMU_PAGE_SIZE=CONFIG_MMU_PAGE_SIZE",
+                "SOC_XTAL_FREQ_MHZ=CONFIG_XTAL_FREQ",
+                "_GNU_SOURCE",
+                "_POSIX_READER_WRITER_LOCKS",
+                "CONFIG_IDF_TARGET_ESP32S3=1",
+                "CONFIG_IDF_TARGET=\"esp32s3\"",
+                "_GLIBCXX_HAVE_POSIX_SEMAPHORE",
+                "_GLIBCXX_USE_POSIX_SEMAPHORE"
+            ],
+            "cStandard": "gnu17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "gcc-x64",
+            "browse": {
+                "path": [
+                    "d:/workspace/esp/v5.5/esp-idf/components",
+                    "${workspaceFolder}/managed_components",
+                    "${workspaceFolder}/main",
+                    "${workspaceFolder}/build/config"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            }
+        }
+    ],
+    "version": 4
+}
