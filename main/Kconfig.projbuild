@@ -1,0 +1,53 @@
+menu "ESP32 Camera WiFi Manager Configuration"
+
+    config WIFI_MANAGER_TASK_PRIORITY
+        int "WiFi Manager Task Priority"
+        default 5
+        help
+            Priority of the WiFi Manager task.
+
+    config WIFI_MANAGER_RETRY_TIMER
+        int "WiFi Manager Retry Timer (ms)"
+        default 5000
+        help
+            Time in milliseconds between WiFi connection retries.
+
+    config WIFI_MANAGER_AP_SSID
+        string "WiFi Manager AP SSID"
+        default "ESP32-Camera"
+        help
+            SSID of the Access Point created by WiFi Manager.
+
+    config WIFI_MANAGER_AP_PASSWORD
+        string "WiFi Manager AP Password"
+        default ""
+        help
+            Password for the Access Point. Leave empty for open AP.
+
+    config WIFI_MANAGER_AP_CHANNEL
+        int "WiFi Manager AP Channel"
+        default 1
+        range 1 13
+        help
+            Channel for the Access Point.
+
+    config WIFI_MANAGER_AP_IP
+        string "WiFi Manager AP IP"
+        default "192.168.4.1"
+        help
+            IP address of the Access Point.
+
+    config WIFI_MANAGER_AP_NETMASK
+        string "WiFi Manager AP Netmask"
+        default "255.255.255.0"
+        help
+            Netmask of the Access Point.
+
+    config WIFI_MANAGER_MAX_STA_CONN
+        int "WiFi Manager Max STA Connections"
+        default 4
+        range 1 4
+        help
+            Maximum number of stations that can connect to the AP.
+
+endmenu

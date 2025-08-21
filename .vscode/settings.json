@@ -26,6 +26,8 @@
         "esp_err.h": "c",
         "esp_log.h": "c",
         "esp_system.h": "c",
-        "nvs_flash.h": "c"
+        "nvs_flash.h": "c",
+        "esp_event.h": "c",
+        "wifi_manager.h": "c"
     }
 }

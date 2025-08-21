@@ -15,3 +15,5 @@ dependencies:
   #   # All dependencies of `main` are public by default.
   #   public: true
   espressif/esp32-camera: '*'
+  espressif/mdns: '*'
+  # tonyp7/esp32-wifi-manager: '*'  # Using local copy in managed_components

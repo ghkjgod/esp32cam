@@ -13,7 +13,7 @@
 #include <esp_timer.h>
 
 // Include our custom modules
-#include "wifi_manager.h"
+#include "wifi_manager_wrapper.h"
 #include "ble_scanner.h"
 #include "camera_manager.h"
 #include "http_uploader.h"
@@ -54,6 +54,12 @@ static void wifi_event_callback(wifi_manager_event_t event)
             printf("WiFi connected successfully\n");
             s_wifi_connected = true;
             s_app_state = APP_STATE_WIFI_CONNECTED;
+
+            // Display IP address
+            char ip_str[16];
+            if (wifi_manager_wrapper_get_ip(ip_str) == ESP_OK) {
+                printf("IP Address: %s\n", ip_str);
+            }
             break;
         case WIFI_MANAGER_EVENT_STA_DISCONNECTED:
             printf("WiFi disconnected\n");
@@ -62,6 +68,7 @@ static void wifi_event_callback(wifi_manager_event_t event)
             break;
         case WIFI_MANAGER_EVENT_CONFIG_PORTAL_STARTED:
             printf("WiFi config portal started\n");
+            printf("Connect to 'ESP32-Camera' AP and open http://192.168.4.1 to configure WiFi\n");
             s_app_state = APP_STATE_WIFI_CONFIG;
             break;
         default:
@@ -113,9 +120,16 @@ static esp_err_t init_modules(void)
 
     // Initialize WiFi manager
     printf("Initializing WiFi manager...\n");
-    err = wifi_manager_init(wifi_event_callback);
+    err = wifi_manager_wrapper_init(wifi_event_callback);
     if (err != ESP_OK) {
         printf("Failed to initialize WiFi manager: %s\n", esp_err_to_name(err));
+        return err;
+    }
+
+    // Start WiFi manager
+    err = wifi_manager_wrapper_start();
+    if (err != ESP_OK) {
+        printf("Failed to start WiFi manager: %s\n", esp_err_to_name(err));
         return err;
     }
 
@@ -201,7 +215,7 @@ void app_main(void)
                 // when target device is found
 
                 // Check if WiFi is still connected
-                if (!wifi_manager_is_connected()) {
+                if (!wifi_manager_wrapper_is_connected()) {
                     printf("WiFi disconnected, returning to config mode\n");
                     s_app_state = APP_STATE_WIFI_CONFIG;
                     s_wifi_connected = false;
