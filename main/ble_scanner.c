@@ -9,6 +9,9 @@
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include "esp_gap_ble_api.h"
+#include "esp_gatts_api.h"
+#include "esp_bt_defs.h"
+#include "esp_gatt_common_api.h"
 #include "nvs_flash.h"
 #endif
 
@@ -18,6 +21,42 @@ static int s_rssi_threshold = -50;
 static ble_scanner_callback_t s_callback = NULL;
 static bool s_scanning = false;
 static uint32_t s_scan_duration = 0;
+static TaskHandle_t s_simulation_task_handle = NULL;
+
+// Simulation task to test BLE functionality
+static void ble_simulation_task(void *pvParameters)
+{
+    int simulation_counter = 0;
+
+    while (s_scanning) {
+        vTaskDelay(10000 / portTICK_PERIOD_MS);  // Wait 10 seconds
+
+        if (!s_scanning) {
+            break;
+        }
+
+        simulation_counter++;
+
+        // Simulate finding the target device every 30 seconds (3rd iteration)
+        if (simulation_counter >= 3) {
+            printf("Simulating BLE device detection: %s\n", s_target_device_name);
+
+            if (s_callback) {
+                ble_scan_result_t result = {0};
+                strncpy(result.device_name, s_target_device_name, sizeof(result.device_name) - 1);
+                result.rssi = -75;  // Simulate RSSI better than threshold (-80)
+                result.found = true;
+
+                s_callback(&result);
+            }
+
+            simulation_counter = 0;  // Reset counter
+        }
+    }
+
+    s_simulation_task_handle = NULL;
+    vTaskDelete(NULL);
+}
 
 #ifdef CONFIG_BT_ENABLED
 static esp_ble_scan_params_t ble_scan_params = {
@@ -35,15 +74,15 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
 {
     switch (event) {
         case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
-            printf("BLE scan parameters set complete\n");
+            printf("[BLE] Scan parameters set complete, status = %d\n", param->scan_param_cmpl.status);
             break;
         }
         case ESP_GAP_BLE_SCAN_START_COMPLETE_EVT: {
             if (param->scan_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
-                printf("BLE scan start failed, error status = %x\n", param->scan_start_cmpl.status);
+                printf("[BLE] Scan start failed, error status = %x\n", param->scan_start_cmpl.status);
                 s_scanning = false;
             } else {
-                printf("BLE scan started successfully\n");
+                printf("[BLE] Scan started successfully - now scanning for devices...\n");
                 s_scanning = true;
             }
             break;
@@ -67,15 +106,15 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
                         char device_name[32] = {0};
                         memcpy(device_name, adv_name, MIN(adv_name_len, sizeof(device_name) - 1));
                         
-                        printf("Found device: %s, RSSI: %d\n", device_name, scan_result->scan_rst.rssi);
+                        printf("[BLE] Found device: %s, RSSI: %d\n", device_name, scan_result->scan_rst.rssi);
 
                         // Check if this is our target device
                         if (strstr(device_name, s_target_device_name) != NULL) {
-                            printf("Target device found: %s, RSSI: %d\n", device_name, scan_result->scan_rst.rssi);
+                            printf("[BLE] *** TARGET DEVICE FOUND: %s, RSSI: %d ***\n", device_name, scan_result->scan_rst.rssi);
 
                             // Check RSSI threshold
                             if (scan_result->scan_rst.rssi >= s_rssi_threshold) {
-                                printf("Device is close enough (RSSI: %d >= %d)\n",
+                                printf("[BLE] *** DEVICE IS CLOSE ENOUGH (RSSI: %d >= %d) - TRIGGERING UPLOAD ***\n",
                                         scan_result->scan_rst.rssi, s_rssi_threshold);
 
                                 // Prepare result
@@ -98,7 +137,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
                     break;
                 }
                 case ESP_GAP_SEARCH_INQ_CMPL_EVT:
-                    printf("BLE scan complete\n");
+                    printf("[BLE] BLE scan complete\n");
                     s_scanning = false;
                     break;
                 default:
@@ -108,9 +147,9 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *par
         }
         case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT: {
             if (param->scan_stop_cmpl.status != ESP_BT_STATUS_SUCCESS) {
-                printf("BLE scan stop failed, error status = %x\n", param->scan_stop_cmpl.status);
+                printf("[BLE] Scan stop failed, error status = %x\n", param->scan_stop_cmpl.status);
             } else {
-                printf("BLE scan stopped successfully\n");
+                printf("[BLE] Scan stopped successfully\n");
             }
             s_scanning = false;
             break;
@@ -133,12 +172,80 @@ esp_err_t ble_scanner_init(const char *target_device_name, int rssi_threshold, b
     s_callback = callback;
     s_scanning = false;
 
-    printf("Initializing BLE scanner for device: %s, RSSI threshold: %d\n",
+    printf("[BLE] Initializing BLE scanner for device: %s, RSSI threshold: %d\n",
              s_target_device_name, s_rssi_threshold);
 
 #ifdef CONFIG_BT_ENABLED
-    printf("BLE is enabled in configuration - but temporarily disabled due to linking issues\n");
-    printf("BLE scanner initialized successfully (simulation mode)\n");
+    esp_err_t ret;
+
+    // Initialize NVS (if not already initialized)
+    printf("[BLE] Initializing NVS...\n");
+    ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        printf("[BLE] NVS partition was truncated and needs to be erased\n");
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    if (ret != ESP_OK) {
+        printf("[BLE] NVS init failed: %s\n", esp_err_to_name(ret));
+        return ret;
+    }
+    printf("[BLE] NVS initialized successfully\n");
+
+    // Initialize and enable controller
+    printf("[BLE] Initializing BT controller...\n");
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    ret = esp_bt_controller_init(&bt_cfg);
+    if (ret) {
+        printf("[BLE] Initialize controller failed: %s\n", esp_err_to_name(ret));
+        return ret;
+    }
+    printf("[BLE] BT controller initialized successfully\n");
+
+    printf("[BLE] Enabling BT controller in BLE mode...\n");
+    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+    if (ret) {
+        printf("[BLE] Enable controller failed: %s\n", esp_err_to_name(ret));
+        return ret;
+    }
+    printf("[BLE] BT controller enabled successfully\n");
+
+    // Initialize and enable Bluedroid
+    printf("[BLE] Initializing Bluedroid stack...\n");
+    ret = esp_bluedroid_init();
+    if (ret) {
+        printf("[BLE] Initialize bluedroid failed: %s\n", esp_err_to_name(ret));
+        return ret;
+    }
+    printf("[BLE] Bluedroid stack initialized successfully\n");
+
+    printf("[BLE] Enabling Bluedroid stack...\n");
+    ret = esp_bluedroid_enable();
+    if (ret) {
+        printf("[BLE] Enable bluedroid failed: %s\n", esp_err_to_name(ret));
+        return ret;
+    }
+    printf("[BLE] Bluedroid stack enabled successfully\n");
+
+    // Register GAP callback
+    printf("[BLE] Registering GAP callback...\n");
+    ret = esp_ble_gap_register_callback(esp_gap_cb);
+    if (ret) {
+        printf("[BLE] GAP register error, error code = %x\n", ret);
+        return ret;
+    }
+    printf("[BLE] GAP callback registered successfully\n");
+
+    // Set scan parameters
+    printf("[BLE] Setting scan parameters...\n");
+    ret = esp_ble_gap_set_scan_params(&ble_scan_params);
+    if (ret) {
+        printf("[BLE] Set scan params error, error code = %x\n", ret);
+        return ret;
+    }
+    printf("[BLE] Scan parameters set successfully\n");
+
+    printf("[BLE] BLE scanner initialized successfully\n");
     return ESP_OK;
 #else
     printf("BLE not enabled in configuration - BLE scanner disabled\n");
@@ -155,11 +262,16 @@ esp_err_t ble_scanner_start(uint32_t scan_duration_sec)
 
     s_scan_duration = scan_duration_sec;
 
-    printf("Starting BLE scan for %lu seconds\n", scan_duration_sec);
+    printf("[BLE] Starting BLE scan for %lu seconds\n", scan_duration_sec);
 
 #ifdef CONFIG_BT_ENABLED
-    printf("BLE scan started (simulation mode)\n");
-    s_scanning = true;
+    printf("[BLE] Calling esp_ble_gap_start_scanning...\n");
+    esp_err_t ret = esp_ble_gap_start_scanning(scan_duration_sec);
+    if (ret != ESP_OK) {
+        printf("[BLE] Start scanning failed, error code = %x (%s)\n", ret, esp_err_to_name(ret));
+        return ret;
+    }
+    printf("[BLE] BLE scan started successfully\n");
     return ESP_OK;
 #else
     printf("BLE not enabled - simulating scan start\n");
@@ -175,11 +287,16 @@ esp_err_t ble_scanner_stop(void)
         return ESP_OK;
     }
 
-    printf("Stopping BLE scan\n");
+    printf("[BLE] Stopping BLE scan\n");
 
 #ifdef CONFIG_BT_ENABLED
-    printf("BLE scan stopped (simulation mode)\n");
-    s_scanning = false;
+    printf("[BLE] Calling esp_ble_gap_stop_scanning...\n");
+    esp_err_t ret = esp_ble_gap_stop_scanning();
+    if (ret != ESP_OK) {
+        printf("[BLE] Stop scanning failed, error code = %x (%s)\n", ret, esp_err_to_name(ret));
+        return ret;
+    }
+    printf("[BLE] BLE scan stopped successfully\n");
     return ESP_OK;
 #else
     printf("BLE not enabled - simulating scan stop\n");

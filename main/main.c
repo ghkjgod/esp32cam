@@ -11,11 +11,13 @@
 #include <sys/param.h>
 #include <string.h>
 #include <esp_timer.h>
+#include "esp_heap_caps.h"
 
 // Include our custom modules
 #include "wifi_manager_wrapper.h"
 #include "camera_manager.h"
 #include "http_uploader.h"
+#include "ble_scanner.h"
 
 static const char *TAG = "espcam_main";
 #ifndef portTICK_RATE_MS
@@ -23,8 +25,10 @@ static const char *TAG = "espcam_main";
 #endif
 
 // Configuration constants
-#define UPLOAD_URL "http://192.168.3.68:10880/api/upload"
-#define UPLOAD_INTERVAL_MS 5000  // 5 seconds in milliseconds
+#define UPLOAD_URL "http://192.168.3.169:10880/api/upload"
+#define BLE_TARGET_DEVICE "BLE_NL"
+#define BLE_RSSI_THRESHOLD -80
+#define BLE_TRIGGERED_UPLOAD_INTERVAL_MS 2000  // 2 seconds when BLE device detected
 
 // Application state
 typedef enum {
@@ -32,15 +36,36 @@ typedef enum {
     APP_STATE_WIFI_CONFIG,
     APP_STATE_WIFI_CONNECTED,
     APP_STATE_CAMERA_INIT,
+    APP_STATE_BLE_INIT,
     APP_STATE_READY,
+    APP_STATE_BLE_TRIGGERED,
     APP_STATE_ERROR
 } app_state_t;
 
 static app_state_t s_app_state = APP_STATE_INIT;
 static bool s_wifi_connected = false;
 static bool s_camera_ready = false;
+static bool s_ble_ready = false;
+static bool s_ble_device_detected = false;
 static int64_t s_last_upload_time = 0;
+static int64_t s_ble_detection_time = 0;
 
+// BLE scan result callback
+static void ble_scan_callback(ble_scan_result_t *result)
+{
+    if (result && result->found) {
+        printf("BLE device detected: %s, RSSI: %d\n", result->device_name, result->rssi);
+        s_ble_device_detected = true;
+        s_ble_detection_time = esp_timer_get_time() / 1000;  // Convert to milliseconds
+
+        // Switch to BLE triggered mode for faster uploads
+        if (s_app_state == APP_STATE_READY) {
+            s_app_state = APP_STATE_BLE_TRIGGERED;
+            printf("Switching to BLE triggered mode - will upload every %d seconds\n",
+                   BLE_TRIGGERED_UPLOAD_INTERVAL_MS / 1000);
+        }
+    }
+}
 
 // WiFi event callback
 static void wifi_event_callback(wifi_manager_event_t event)
@@ -137,6 +162,14 @@ static esp_err_t init_modules(void)
         return err;
     }
 
+    // Initialize BLE scanner
+    printf("Initializing BLE scanner...\n");
+    err = ble_scanner_init(BLE_TARGET_DEVICE, BLE_RSSI_THRESHOLD, ble_scan_callback);
+    if (err != ESP_OK) {
+        printf("Failed to initialize BLE scanner: %s\n", esp_err_to_name(err));
+        return err;
+    }
+
     return ESP_OK;
 }
 void app_main(void)
@@ -176,21 +209,31 @@ void app_main(void)
                 break;
 
             case APP_STATE_CAMERA_INIT:
-                printf("Camera ready, starting periodic image upload...\n");
-                s_app_state = APP_STATE_READY;
-                s_last_upload_time = esp_timer_get_time() / 1000;  // Initialize upload timer
-                printf("System ready - will upload images every %d seconds\n", UPLOAD_INTERVAL_MS / 1000);
+                printf("Camera ready, initializing BLE scanner...\n");
+                s_app_state = APP_STATE_BLE_INIT;
+                break;
+
+            case APP_STATE_BLE_INIT:
+                printf("Starting BLE scanner...\n");
+
+                // Start BLE scanning (continuous scan)
+                if (ble_scanner_start(0) == ESP_OK) {
+                    s_ble_ready = true;
+                    s_app_state = APP_STATE_READY;
+                    s_last_upload_time = esp_timer_get_time() / 1000;  // Initialize upload timer
+                    printf("System ready - BLE scanner active, looking for '%s' devices\n", BLE_TARGET_DEVICE);
+                    printf("Normal mode: no automatic uploads, only when BLE device detected\n");
+                    printf("BLE triggered mode: will upload images every %d seconds when device detected\n",
+                           BLE_TRIGGERED_UPLOAD_INTERVAL_MS / 1000);
+                } else {
+                    printf("Failed to start BLE scanner\n");
+                    s_app_state = APP_STATE_ERROR;
+                }
                 break;
 
             case APP_STATE_READY:
-                // System is fully operational
-                // Check if it's time to upload an image
-                int64_t current_time = esp_timer_get_time() / 1000;  // Convert to milliseconds
-                if (current_time - s_last_upload_time >= UPLOAD_INTERVAL_MS) {
-                    printf("Time to upload image (interval: %d ms)\n", UPLOAD_INTERVAL_MS);
-                    take_and_upload_picture();
-                    s_last_upload_time = current_time;
-                }
+                // System is fully operational - normal mode (no automatic uploads)
+                // Only upload when BLE device is detected
 
                 // Check if WiFi is still connected
                 if (!wifi_manager_wrapper_is_connected()) {
@@ -201,6 +244,36 @@ void app_main(void)
 
                 vTaskDelay(1000 / portTICK_PERIOD_MS);  // Check every 1 second
                 break;
+
+            case APP_STATE_BLE_TRIGGERED: {
+                // BLE device detected - faster upload mode
+                int64_t current_time = esp_timer_get_time() / 1000;  // Convert to milliseconds
+
+                // Upload images more frequently when BLE device is detected
+                if (current_time - s_last_upload_time >= BLE_TRIGGERED_UPLOAD_INTERVAL_MS) {
+                    printf("Time to upload image (BLE triggered mode, interval: %d ms)\n",
+                           BLE_TRIGGERED_UPLOAD_INTERVAL_MS);
+                    take_and_upload_picture();
+                    s_last_upload_time = current_time;
+                }
+
+                // Check if we should return to normal mode (no BLE device detected for 10 seconds)
+                if (current_time - s_ble_detection_time > 10000) {
+                    printf("No BLE device detected for 10 seconds, returning to normal mode\n");
+                    s_ble_device_detected = false;
+                    s_app_state = APP_STATE_READY;
+                }
+
+                // Check if WiFi is still connected
+                if (!wifi_manager_wrapper_is_connected()) {
+                    printf("WiFi disconnected, returning to config mode\n");
+                    s_app_state = APP_STATE_WIFI_CONFIG;
+                    s_wifi_connected = false;
+                }
+
+                vTaskDelay(500 / portTICK_PERIOD_MS);  // Check more frequently in BLE mode
+                break;
+            }
 
             case APP_STATE_ERROR:
                 printf("Application in error state\n");

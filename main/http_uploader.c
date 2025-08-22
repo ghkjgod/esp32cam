@@ -1,6 +1,7 @@
 #include "http_uploader.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,10 +131,38 @@ esp_err_t http_uploader_upload_image(const uint8_t *image_data, size_t image_siz
         return ESP_ERR_INVALID_SIZE;
     }
 
-    // Allocate buffer for complete multipart data
-    uint8_t *post_data = malloc(total_len);
+    // Check available memory
+    size_t free_heap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
+    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    size_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+    printf("Memory status before allocation:\n");
+    printf("  - Free heap (default): %zu bytes\n", free_heap);
+    printf("  - Free PSRAM: %zu bytes\n", free_psram);
+    printf("  - Free internal: %zu bytes\n", free_internal);
+    printf("  - Requested: %zu bytes\n", total_len);
+
+    // Try to allocate from PSRAM first (for large allocations), then fallback to internal memory
+    uint8_t *post_data = NULL;
+    if (total_len > 16384) {  // Use PSRAM for large allocations
+        post_data = heap_caps_malloc(total_len, MALLOC_CAP_SPIRAM);
+        if (post_data != NULL) {
+            printf("Successfully allocated %zu bytes in PSRAM\n", total_len);
+        }
+    }
+
+    if (post_data == NULL) {
+        printf("PSRAM allocation failed or not attempted, trying internal memory...\n");
+        post_data = heap_caps_malloc(total_len, MALLOC_CAP_INTERNAL);
+        if (post_data != NULL) {
+            printf("Successfully allocated %zu bytes in internal RAM\n", total_len);
+        }
+    }
+
     if (post_data == NULL) {
         printf("Failed to allocate memory for POST data (%zu bytes)\n", total_len);
+        printf("Available memory: heap=%zu, psram=%zu, internal=%zu\n",
+               free_heap, free_psram, free_internal);
         return ESP_ERR_NO_MEM;
     }
 
@@ -156,7 +185,7 @@ esp_err_t http_uploader_upload_image(const uint8_t *image_data, size_t image_siz
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
         printf("Failed to initialize HTTP client\n");
-        free(post_data);
+        heap_caps_free(post_data);
         return ESP_FAIL;
     }
 
@@ -202,7 +231,7 @@ esp_err_t http_uploader_upload_image(const uint8_t *image_data, size_t image_siz
 
     // Cleanup
     esp_http_client_cleanup(client);
-    free(post_data);
+    heap_caps_free(post_data);
 
     return err;
 }
