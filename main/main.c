@@ -26,7 +26,7 @@ static const char *TAG = "espcam_main";
 // Configuration constants
 #define TARGET_DEVICE_NAME "car_1234"
 #define RSSI_THRESHOLD -50  // dBm, closer devices have higher RSSI
-#define UPLOAD_URL "http://192.168.33.93:8000/upload"
+#define UPLOAD_URL "http://192.168.1.21:10880/api/upload"
 #define BLE_SCAN_DURATION 30  // seconds
 
 // Application state
