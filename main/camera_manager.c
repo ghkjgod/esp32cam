@@ -34,9 +34,9 @@ static camera_config_t s_camera_config = {
     .ledc_channel = LEDC_CHANNEL_0,
 
     .pixel_format = PIXFORMAT_JPEG, //YUV422,GRAYSCALE,RGB565,JPEG
-    .frame_size = FRAMESIZE_QVGA,    //QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates.
+    .frame_size = FRAMESIZE_SVGA,    //SVGA: 800x600, JPEG mode supports higher resolutions
 
-    .jpeg_quality = 12, //0-63, for OV series camera sensors, lower number means higher quality
+    .jpeg_quality = 8, //0-63, for OV series camera sensors, lower number means higher quality (improved from 12 to 8)
     .fb_count = 2,       //When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
     .fb_location = CAMERA_FB_IN_PSRAM,  //Using PSRAM for frame buffers (now enabled)
@@ -71,7 +71,7 @@ esp_err_t camera_manager_init(void)
     printf("========================================\n");
 
     // If PSRAM is not available or has insufficient memory, try using internal RAM
-    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 32768) {  // Need at least 32KB for camera buffers
+    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 128000) {  // Need at least 128KB for SVGA camera buffers
         printf("WARNING: PSRAM has insufficient memory (%d bytes), switching to internal RAM\n",
                heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         s_camera_config.fb_location = CAMERA_FB_IN_DRAM;
