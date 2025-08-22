@@ -3,6 +3,7 @@
 #include "esp_http_client.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/param.h>
 
 static const char *TAG = "http_uploader";
@@ -96,11 +97,53 @@ esp_err_t http_uploader_upload_image(const uint8_t *image_data, size_t image_siz
         return ESP_ERR_INVALID_ARG;
     }
 
-    printf("Uploading image: %s, size: %zu bytes\n", filename, image_size);
+    printf("Uploading image: %s, size: %zu bytes to URL: %s\n", filename, image_size, s_config.url);
 
     // Reset response buffer
     memset(s_response_buffer, 0, sizeof(s_response_buffer));
     s_response_len = 0;
+
+    // Create multipart form data boundary
+    const char *boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+    char content_type[128];
+    snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", boundary);
+
+    // Build multipart form data parts
+    char header_part[512];
+    char footer_part[128];
+
+    snprintf(header_part, sizeof(header_part),
+             "--%s\r\n"
+             "Content-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n"
+             "Content-Type: image/jpeg\r\n\r\n",
+             boundary, filename);
+
+    snprintf(footer_part, sizeof(footer_part), "\r\n--%s--\r\n", boundary);
+
+    size_t header_len = strlen(header_part);
+    size_t footer_len = strlen(footer_part);
+    size_t total_len = header_len + image_size + footer_len;
+
+    // Check for reasonable size limits (e.g., 2MB max)
+    if (total_len > 2 * 1024 * 1024) {
+        printf("Image too large for upload: %zu bytes (max 2MB)\n", total_len);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    // Allocate buffer for complete multipart data
+    uint8_t *post_data = malloc(total_len);
+    if (post_data == NULL) {
+        printf("Failed to allocate memory for POST data (%zu bytes)\n", total_len);
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Build complete multipart data
+    memcpy(post_data, header_part, header_len);
+    memcpy(post_data + header_len, image_data, image_size);
+    memcpy(post_data + header_len + image_size, footer_part, footer_len);
+
+    printf("Multipart data prepared: header_len=%zu, image_size=%zu, footer_len=%zu, total_len=%zu\n",
+           header_len, image_size, footer_len, total_len);
 
     // Configure HTTP client
     esp_http_client_config_t config = {
@@ -113,100 +156,53 @@ esp_err_t http_uploader_upload_image(const uint8_t *image_data, size_t image_siz
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
         printf("Failed to initialize HTTP client\n");
+        free(post_data);
         return ESP_FAIL;
     }
 
     esp_err_t err = ESP_OK;
 
-    // Create multipart form data boundary
-    const char *boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
-    char content_type[128];
-    snprintf(content_type, sizeof(content_type), "multipart/form-data; boundary=%s", boundary);
-
-    // Calculate content length
-    char header_part[512];
-    char footer_part[128];
-    
-    snprintf(header_part, sizeof(header_part),
-             "--%s\r\n"
-             "Content-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n"
-             "Content-Type: image/jpeg\r\n\r\n",
-             boundary, filename);
-    
-    snprintf(footer_part, sizeof(footer_part), "\r\n--%s--\r\n", boundary);
-    
-    size_t total_len = strlen(header_part) + image_size + strlen(footer_part);
-
     // Set HTTP method and headers
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     esp_http_client_set_header(client, "Content-Type", content_type);
-    esp_http_client_set_post_field(client, NULL, total_len);
+    esp_http_client_set_post_field(client, (const char *)post_data, total_len);
 
-    // Open connection
-    err = esp_http_client_open(client, total_len);
-    if (err != ESP_OK) {
-        printf("Failed to open HTTP connection: %s\n", esp_err_to_name(err));
-        goto cleanup;
-    }
+    // Perform the request
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        int content_length = esp_http_client_get_content_length(client);
 
-    // Send header part
-    int written = esp_http_client_write(client, header_part, strlen(header_part));
-    if (written < 0) {
-        printf("Failed to write header part\n");
-        err = ESP_FAIL;
-        goto cleanup;
-    }
+        printf("HTTP Status: %d, Content-Length: %d\n", status_code, content_length);
 
-    // Send image data
-    written = esp_http_client_write(client, (const char *)image_data, image_size);
-    if (written < 0) {
-        printf("Failed to write image data\n");
-        err = ESP_FAIL;
-        goto cleanup;
-    }
-
-    // Send footer part
-    written = esp_http_client_write(client, footer_part, strlen(footer_part));
-    if (written < 0) {
-        printf("Failed to write footer part\n");
-        err = ESP_FAIL;
-        goto cleanup;
-    }
-
-    // Fetch response
-    int content_length = esp_http_client_fetch_headers(client);
-    int status_code = esp_http_client_get_status_code(client);
-
-    printf("HTTP Status: %d, Content-Length: %d\n", status_code, content_length);
-
-    if (content_length > 0) {
-        int data_read = esp_http_client_read_response(client, s_response_buffer, 
-                                                     sizeof(s_response_buffer) - 1);
-        if (data_read >= 0) {
-            s_response_buffer[data_read] = '\0';
-            s_response_len = data_read;
+        // Fill response structure
+        if (response != NULL) {
+            response->status_code = status_code;
+            response->response_len = s_response_len;
+            memcpy(response->response_data, s_response_buffer,
+                   MIN(s_response_len + 1, sizeof(response->response_data)));
         }
-    }
 
-    // Fill response structure
-    if (response != NULL) {
-        response->status_code = status_code;
-        response->response_len = s_response_len;
-        memcpy(response->response_data, s_response_buffer, 
-               MIN(s_response_len + 1, sizeof(response->response_data)));
-    }
-
-    if (status_code >= 200 && status_code < 300) {
-        printf("Image uploaded successfully\n");
-        err = ESP_OK;
+        if (status_code >= 200 && status_code < 300) {
+            printf("Image uploaded successfully\n");
+            if (s_response_len > 0) {
+                printf("Server response: %s\n", s_response_buffer);
+            }
+            err = ESP_OK;
+        } else {
+            printf("Upload failed with status: %d\n", status_code);
+            if (s_response_len > 0) {
+                printf("Server error response: %s\n", s_response_buffer);
+            }
+            err = ESP_FAIL;
+        }
     } else {
-        printf("Upload failed with status: %d\n", status_code);
-        err = ESP_FAIL;
+        printf("HTTP request failed: %s\n", esp_err_to_name(err));
     }
 
-cleanup:
-    esp_http_client_close(client);
+    // Cleanup
     esp_http_client_cleanup(client);
+    free(post_data);
 
     return err;
 }

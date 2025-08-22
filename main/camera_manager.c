@@ -2,6 +2,7 @@
 #include "main.h"
 #include "esp_log.h"
 #include "esp_camera.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "camera_manager";
 
@@ -38,7 +39,7 @@ static camera_config_t s_camera_config = {
     .jpeg_quality = 12, //0-63, for OV series camera sensors, lower number means higher quality
     .fb_count = 2,       //When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode.
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
-    .fb_location = CAMERA_FB_IN_PSRAM,
+    .fb_location = CAMERA_FB_IN_PSRAM,  //Using PSRAM for frame buffers (now enabled)
 };
 
 esp_err_t camera_manager_init(void)
@@ -49,16 +50,65 @@ esp_err_t camera_manager_init(void)
     }
 
     printf("Initializing camera...\n");
+    printf("Camera config: frame_size=%d, fb_count=%d, fb_location=%d\n",
+           s_camera_config.frame_size, s_camera_config.fb_count, s_camera_config.fb_location);
+
+    // Check PSRAM availability and memory status
+    printf("=== Memory Status Before Camera Init ===\n");
+    printf("Total heap size: %d bytes\n", heap_caps_get_total_size(MALLOC_CAP_8BIT));
+    printf("Free heap size: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    printf("Largest free block: %d bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
+    // Check PSRAM specifically
+    printf("PSRAM total size: %d bytes\n", heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    printf("PSRAM free size: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    printf("PSRAM largest free block: %d bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+
+    // Check internal RAM
+    printf("Internal RAM total: %d bytes\n", heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    printf("Internal RAM free: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    printf("Internal RAM largest free block: %d bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    printf("========================================\n");
+
+    // If PSRAM is not available or has insufficient memory, try using internal RAM
+    if (heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < 32768) {  // Need at least 32KB for camera buffers
+        printf("WARNING: PSRAM has insufficient memory (%d bytes), switching to internal RAM\n",
+               heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        s_camera_config.fb_location = CAMERA_FB_IN_DRAM;
+        s_camera_config.fb_count = 1;  // Reduce buffer count to save memory
+        printf("Updated config: fb_location=%d, fb_count=%d\n",
+               s_camera_config.fb_location, s_camera_config.fb_count);
+    }
 
     // Initialize the camera
     esp_err_t err = esp_camera_init(&s_camera_config);
     if (err != ESP_OK) {
-        printf("Camera init failed with error 0x%x\n", err);
-        return err;
+        printf("Camera init failed with error 0x%x (%s)\n", err, esp_err_to_name(err));
+
+        // If PSRAM init failed, try with internal RAM as fallback
+        if (s_camera_config.fb_location == CAMERA_FB_IN_PSRAM) {
+            printf("Retrying with internal RAM...\n");
+            s_camera_config.fb_location = CAMERA_FB_IN_DRAM;
+            s_camera_config.fb_count = 1;  // Use single buffer to save memory
+            err = esp_camera_init(&s_camera_config);
+            if (err != ESP_OK) {
+                printf("Camera init failed again with internal RAM: 0x%x (%s)\n", err, esp_err_to_name(err));
+                return err;
+            }
+        } else {
+            return err;
+        }
     }
 
     s_camera_initialized = true;
     printf("Camera initialized successfully\n");
+
+    // Print final memory status
+    printf("=== Memory Status After Camera Init ===\n");
+    printf("Free heap size: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    printf("PSRAM free size: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    printf("Internal RAM free: %d bytes\n", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    printf("=======================================\n");
 
     return ESP_OK;
 }
