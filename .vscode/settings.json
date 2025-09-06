@@ -12,7 +12,7 @@
     "idf.customExtraVars": {
         "IDF_TARGET": "esp32s3"
     },
-    "idf.portWin": "COM9",
+    "idf.portWin": "COM13",
     "idf.flashType": "UART",
     "idf.buildPath": "${workspaceFolder}/build",
     "files.associations": {

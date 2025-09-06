@@ -25,7 +25,7 @@ static const char *TAG = "espcam_main";
 #endif
 
 // Configuration constants
-#define UPLOAD_URL "http://192.168.3.169:10880/api/upload"
+#define UPLOAD_URL "http://120.25.165.65:23186/api/upload"
 #define BLE_TARGET_DEVICE "BLE_NL"
 #define BLE_RSSI_THRESHOLD -80
 #define BLE_TRIGGERED_UPLOAD_INTERVAL_MS 2000  // 2 seconds when BLE device detected
